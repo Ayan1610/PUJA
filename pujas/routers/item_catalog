@@ -1,0 +1,101 @@
+import os
+from typing import List
+from fastapi import FastAPI, APIRouter, Depends, Header, status, Request, Response, HTTPException
+from db.models.item_catalog import Item_Catalog_Pydantic, Item_Catalog, Item_CatalogCreate, Item_CatalogIn_Pydantic
+from tortoise.exceptions import DoesNotExist
+
+router = APIRouter()
+
+# Create a new item in the catalog
+@router.post('/api/v1_0/itemcatalog', status_code=status.HTTP_201_CREATED)
+async def create_item_catalog(itemset: Item_CatalogCreate, 
+                              request: Request, 
+                              response: Response, 
+                              request_user_id: str = Header(None)):
+    statusStr: str = 'Success'
+
+    # Check if an item with the same category and subcategory already exists
+    item_in_db = await Item_Catalog.filter(
+        category_id=itemset.category_id,
+        sub_category_id=itemset.sub_category_id
+    ).first()
+
+    if item_in_db:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Item with this category and subcategory already exists in the catalog.',
+        )
+
+    item_obj = Item_Catalog(
+        category_id=itemset.category_id,
+        category_description=itemset.category_description,
+        sub_category_id=itemset.sub_category_id,
+        sub_category_description=itemset.sub_category_description,
+        status=itemset.status,
+    )
+
+    await item_obj.save()
+    return {'status': statusStr, 'data': await Item_Catalog_Pydantic.from_tortoise_orm(item_obj)}
+
+# Get all items in the catalog
+@router.get('/api/v1_0/itemcatalog', response_model=List[Item_Catalog_Pydantic], status_code=status.HTTP_200_OK)
+async def get_items_catalog(
+    request: Request,
+    response: Response,
+    limit: int = Query(10, description="Limit the number of results"),
+    offset: int = Query(0, description="Offset the starting point of results")
+):
+    items = await Item_Catalog.all().offset(offset).limit(limit)
+    return items
+
+# Update item details in the catalog
+@router.put("/api/v1_0/itemcatalog/{catalog_id}", status_code=status.HTTP_200_OK)
+async def update_item_catalog(catalog_id: int, 
+                              itemset: Item_CatalogIn_Pydantic, 
+                              request: Request, 
+                              response: Response, 
+                              request_user_id: str = Header(None)):
+    statusStr: str = 'Success'
+
+    # Fetch item from the database
+    item_in_db = await Item_Catalog.get_or_none(catalog_id=catalog_id)
+    if not item_in_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Item not found with this id.',
+        )
+
+    item_in_db.category_id = itemset.category_id if itemset.category_id else item_in_db.category_id
+    item_in_db.category_description = itemset.category_description if itemset.category_description else item_in_db.category_description
+    item_in_db.sub_category_id = itemset.sub_category_id if itemset.sub_category_id else item_in_db.sub_category_id
+    item_in_db.sub_category_description = itemset.sub_category_description if itemset.sub_category_description else item_in_db.sub_category_description
+    item_in_db.status = itemset.status if itemset.status is not None else item_in_db.status
+
+    await item_in_db.save()
+
+    return {'status': 'Success', 'data': await Item_Catalog_Pydantic.from_tortoise_orm(item_in_db)}
+
+# Delete an item from the catalog
+@router.delete("/api/v1_0/itemcatalog/{catalog_id}", status_code=status.HTTP_200_OK)
+async def delete_item_catalog(catalog_id: int, 
+                              request: Request, 
+                              response: Response, 
+                              request_user_id: str = Header(None)):
+    statusStr: str = 'Success'
+
+    # Fetch item from the database
+    item_in_db = await Item_Catalog.get_or_none(catalog_id=catalog_id)
+    if not item_in_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Item not found with this id.',
+        )
+
+    await item_in_db.delete()
+
+    return {'status': 'Success', 'message': 'Item deleted successfully'}
+
+
+
+
+
